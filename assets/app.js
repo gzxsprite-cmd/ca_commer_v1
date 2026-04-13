@@ -242,6 +242,16 @@ function timeline(events = []) {
     .join("")}</ul>`;
 }
 
+function amount(num) {
+  return `¥${Number(num || 0).toLocaleString("zh-CN")}`;
+}
+
+function allocationRows(c) {
+  return c.allocations
+    .map((a) => `<tr><td>${a.type}</td><td>${a.ref}</td><td>${amount(a.amount)}</td><td>${a.reason || "-"}</td></tr>`)
+    .join("");
+}
+
 function renderOpsHome() {
   const pendingReview = store.contracts.filter((c) => ["submitted_to_cm", "cm_rejected"].includes(c.workflowStatus));
   const pendingArchive = store.contracts.filter((c) => c.workflowStatus === "pending_archive");
@@ -267,28 +277,51 @@ function renderContractIntake() {
     `${opsTabs("intake")}
     <section class="card">
       <h2>合同录入（AM）</h2>
-      <p class="helper">流程提示：合同上传 → AI提取占位 → 报价依据/执行项目映射 → 金额分配 → 提交 CM。</p>
+      <p class="helper">步骤化流程：1上传与AI提取 → 2合同基础 → 3项目类型 → 4报价依据 → 5执行项目 → 6Others → 7回款节点 → 8校验提交。</p>
+      <h3>步骤1：上传合同与 AI 提取结果</h3>
+      <label>上传合同文件<input id="in-file" type="file"/></label>
+      <p id="ai-msg" class="helper">请先上传文件，系统将展示可复核的 AI 提取结果。</p>
+      <table id="ai-table">
+        <thead><tr><th>提取字段</th><th>AI结果</th><th>人工复核</th></tr></thead>
+        <tbody>
+          <tr><td>客户</td><td id="ai-customer">-</td><td><input id="in-customer" value="Tesla"/></td></tr>
+          <tr><td>产品</td><td id="ai-product">-</td><td><input id="in-product" value="Model Y OTP"/></td></tr>
+          <tr><td>合同总金额</td><td id="ai-amount">-</td><td><input id="in-total" type="number" value="100000"/></td></tr>
+        </tbody>
+      </table>
+      <h3>步骤2：合同基础信息</h3>
       <div class="grid two">
         <label>合同标题<input id="in-title" value="示例新合同"/></label>
-        <label>合同总金额<input id="in-total" type="number" value="100000"/></label>
+        <label>币种<select id="in-currency"><option>CNY</option><option>USD</option></select></label>
       </div>
-      <label>上传合同文件<input id="in-file" type="file"/></label>
-      <p id="ai-msg" class="helper">请先上传文件触发 AI 提取占位。</p>
-      <div class="grid three">
-        <label>合同类型
-          <select id="in-type"><option value="new_project">new_project</option><option value="ec">ec</option><option value="mixed">mixed</option></select>
-        </label>
-        <label>报价依据（Salesforce）金额<input id="in-sf" type="number" value="60000"/></label>
-        <label>执行项目（PMS）金额<input id="in-pms" type="number" value="40000"/></label>
+      <h3>步骤3：合同类型</h3>
+      <label>合同类型
+        <select id="in-type"><option value="new_project">new_project</option><option value="ec">ec</option><option value="mixed">mixed</option></select>
+      </label>
+      <h3>步骤4：报价依据（Salesforce）</h3>
+      <div class="grid two">
+        <label>报价依据金额<input id="in-sf" type="number" value="60000"/></label>
+        <label><input id="in-select-sf" type="checkbox" checked/> 已选择至少一个报价依据（Salesforce）</label>
       </div>
+      <h3>步骤5：执行项目（PMS）</h3>
+      <div class="grid two">
+        <label>执行项目金额<input id="in-pms" type="number" value="40000"/></label>
+        <label><input id="in-select-pms" type="checkbox" checked/> 已选择至少一个执行项目（PMS）</label>
+      </div>
+      <h3>步骤6：Others</h3>
       <div class="grid two">
         <label>Others 金额<input id="in-others" type="number" value="0"/></label>
         <label>Others 原因<input id="in-others-reason" placeholder="若有 Others 必填"/></label>
       </div>
-      <div class="grid two">
-        <label><input id="in-select-sf" type="checkbox" checked/> 已选择至少一个报价依据（Salesforce）</label>
-        <label><input id="in-select-pms" type="checkbox" checked/> 已选择至少一个执行项目（PMS）</label>
-      </div>
+      <h3>步骤7：回款节点（Payment Nodes）</h3>
+      <table>
+        <thead><tr><th>节点</th><th>年份</th><th>比例(%)</th><th>金额</th></tr></thead>
+        <tbody>
+          <tr><td>预付款</td><td><input id="pn1-year" value="2026"/></td><td><input id="pn1-ratio" type="number" value="30"/></td><td id="pn1-amt">${amount(30000)}</td></tr>
+          <tr><td>量产节点</td><td><input id="pn2-year" value="2027"/></td><td><input id="pn2-ratio" type="number" value="70"/></td><td id="pn2-amt">${amount(70000)}</td></tr>
+        </tbody>
+      </table>
+      <h3>步骤8：最终校验与提交</h3>
       <h3>当前流转提示</h3>
       ${workflowPanel({
         workflowStatus: "draft",
@@ -304,7 +337,20 @@ function renderContractIntake() {
 
   document.getElementById("in-file").addEventListener("change", () => {
     document.getElementById("ai-msg").textContent = "AI 提取完成，请检查字段与映射后再提交。";
+    document.getElementById("ai-customer").textContent = "Tesla";
+    document.getElementById("ai-product").textContent = "Model Y OTP";
+    document.getElementById("ai-amount").textContent = amount(document.getElementById("in-total").value);
   });
+
+  function refreshPaymentNodes() {
+    const total = Number(document.getElementById("in-total").value || 0);
+    const r1 = Number(document.getElementById("pn1-ratio").value || 0);
+    const r2 = Number(document.getElementById("pn2-ratio").value || 0);
+    document.getElementById("pn1-amt").textContent = amount((total * r1) / 100);
+    document.getElementById("pn2-amt").textContent = amount((total * r2) / 100);
+  }
+  ["in-total", "pn1-ratio", "pn2-ratio"].forEach((id) => document.getElementById(id).addEventListener("input", refreshPaymentNodes));
+  refreshPaymentNodes();
 
   document.getElementById("in-submit").addEventListener("click", () => {
     const total = Number(document.getElementById("in-total").value || 0);
@@ -381,6 +427,21 @@ function renderContractReview() {
     document.getElementById("rv-detail").innerHTML = `
       <p>${badge(labels.workflow[c.workflowStatus], getStatusType(c.workflowStatus))} ${badge(labels.visibility[c.otpVisibility] || c.otpVisibility, "info")}</p>
       <p>Dummy 合同号：${c.dummyId || "-"}；Formal 合同号：${c.formalId || "-"}</p>
+      <h3>合同文档预览</h3>
+      <div class="card"><p>文件名：${c.contractTitle}.pdf</p><p>预览摘要：甲方/乙方、金额、付款节点、签署页（演示占位）。</p></div>
+      <h3>结构化字段摘要</h3>
+      <table>
+        <thead><tr><th>字段</th><th>值</th></tr></thead>
+        <tbody>
+          <tr><td>客户</td><td>${c.customer}</td></tr>
+          <tr><td>合同类型</td><td>${c.contractType}</td></tr>
+          <tr><td>合同总金额</td><td>${amount(c.totalAmount)}</td></tr>
+        </tbody>
+      </table>
+      <h3>映射摘要</h3>
+      <table><thead><tr><th>类型</th><th>对象</th><th>金额</th><th>备注</th></tr></thead><tbody>${allocationRows(c)}</tbody></table>
+      <h3>分配汇总</h3>
+      <p>已分配总额：${amount(c.allocations.reduce((s, a) => s + a.amount, 0))} / 合同总额：${amount(c.totalAmount)}</p>
       ${workflowPanel(c)}
       <h3>流程时间线</h3>
       ${timeline(c.workflowEvents)}
@@ -445,7 +506,15 @@ function renderContractArchive() {
     const c = store.contracts.find((x) => x.caseId === document.getElementById("ar-case").value);
     if (!c) return;
     document.getElementById("ar-detail").innerHTML = `
-      <p>差异比对结果：${c.diffDetected ? badge("存在差异", "warning") : badge("内容一致", "success")}</p>
+      <h3>合同版本识别</h3>
+      <p>${badge("草稿版", "default")} ${c.formalId ? badge("正式版", "info") : badge("正式版缺失", "warning")} ${document.getElementById("ar-file").files.length ? badge("双签版已上传", "success") : badge("双签版待上传", "warning")}</p>
+      <h3>差异摘要</h3>
+      <p>${c.diffDetected ? badge("存在差异", "warning") : badge("内容一致", "success")}</p>
+      <ul>
+        <li>合同金额字段：${c.diffDetected ? "双签版与正式版金额描述存在文本差异（数值一致）" : "一致"}</li>
+        <li>付款节点描述：${c.diffDetected ? "节点备注有新增说明" : "一致"}</li>
+        <li>签署信息：${document.getElementById("ar-file").files.length ? "已上传双签文件待确认" : "未上传双签文件"}</li>
+      </ul>
       ${workflowPanel(c)}
       ${timeline(c.workflowEvents)}
     `;
@@ -482,7 +551,15 @@ function renderBillingExecution() {
     `${opsTabs("billing")}
     <section class="card">
       <h2>开票执行（CM）</h2>
-      <p class="helper">路径提示：已归档合同 → 月计划 → 开票事件 → 分配到合同 → 余额扣减。</p>
+      <p class="helper">月度开票工作台：先看本月任务与合同余额，再录入开票并分配。</p>
+      <h3>本月待开票合同上下文</h3>
+      <table>
+        <thead><tr><th>合同号</th><th>原始金额</th><th>已开票</th><th>剩余余额</th></tr></thead>
+        <tbody>
+          ${allocContracts.map((b) => `<tr><td>${b.contractRef}</td><td>${amount(b.original)}</td><td>${amount(b.billed)}</td><td>${amount(b.remaining)}</td></tr>`).join("")}
+        </tbody>
+      </table>
+      <h3>常规开票操作</h3>
       <div class="grid three">
         <label>Workon 编号<input id="be-workon" value="WO-9999"/></label>
         <label>发票号<input id="be-invoice" value="INV-NEW"/></label>
@@ -491,13 +568,14 @@ function renderBillingExecution() {
       <p>可分配合同（仅展示余额>0且非closed）：</p>
       ${allocContracts
         .map(
-          (b, i) => `<label>${b.contractRef} 剩余 ${b.remaining}<input class="be-alloc" data-ref="${b.contractRef}" data-rem="${b.remaining}" type="number" value="${i === 0 ? 120000 : 0}"/></label>`
+          (b, i) => `<label>${b.contractRef}（原始${amount(b.original)}｜已开票${amount(b.billed)}｜剩余${amount(b.remaining)}）<input class="be-alloc" data-ref="${b.contractRef}" data-rem="${b.remaining}" type="number" value="${i === 0 ? 120000 : 0}"/></label>`
         )
         .join("")}
       <p class="helper">校验提示：单合同分配金额不能超过该合同剩余余额；开票金额必须全部分配。</p>
+      <p id="be-preview" class="helper"></p>
       <button class="btn primary" id="be-save">保存开票并分配</button>
       <hr/>
-      <h3>特殊关账申请</h3>
+      <h3>特殊关账申请（例外流程）</h3>
       <div class="grid two">
         <label>合同号<input id="cr-contract" placeholder="如 F9000004"/></label>
         <label>申请原因<input id="cr-reason" placeholder="必须填写"/></label>
@@ -506,6 +584,20 @@ function renderBillingExecution() {
       <p id="be-msg" class="helper"></p>
     </section>`
   );
+
+  const updatePreview = () => {
+    const msg = document.getElementById("be-preview");
+    const lines = Array.from(document.querySelectorAll(".be-alloc")).map((input) => {
+      const ref = input.dataset.ref;
+      const alloc = Number(input.value || 0);
+      const bal = store.balances.find((b) => b.contractRef === ref);
+      const after = (bal?.remaining || 0) - alloc;
+      return `${ref} 分配后预计余额：${amount(after)}`;
+    });
+    msg.textContent = `分配后余额预览：${lines.join(" ｜ ")}`;
+  };
+  document.querySelectorAll(".be-alloc").forEach((el) => el.addEventListener("input", updatePreview));
+  updatePreview();
 
   document.getElementById("be-save").addEventListener("click", () => {
     const amount = Number(document.getElementById("be-amount").value || 0);
@@ -628,9 +720,9 @@ function renderPendingArchive() {
     "scp",
     `${scpTabs("pending")}
     <section class="grid three">
-      <article class="card"><h2>待 CM</h2>${pendingCm.map((c) => `<p>${c.caseId}｜${c.nextStep}</p>`).join("") || "<p>无</p>"}</article>
-      <article class="card"><h2>待 CA</h2>${pendingCa.map((c) => `<p>${c.caseId}｜${c.nextStep}</p>`).join("") || "<p>无</p>"}</article>
-      <article class="card"><h2>待归档</h2>${pendingAr.map((c) => `<p>${c.caseId}｜阻塞：${c.blockerReason || "待上传双签文件"}</p>`).join("") || "<p>无</p>"}</article>
+      <article class="card"><h2>待 CM</h2>${pendingCm.map((c) => `<p>${c.caseId}｜${c.nextStep}｜<a href="#/scp/contract-trace">查看追踪</a></p>`).join("") || "<p>无</p>"}</article>
+      <article class="card"><h2>待 CA</h2>${pendingCa.map((c) => `<p>${c.caseId}｜${c.nextStep}｜<a href="#/scp/contract-trace">查看追踪</a></p>`).join("") || "<p>无</p>"}</article>
+      <article class="card"><h2>待归档</h2>${pendingAr.map((c) => `<p>${c.caseId}｜阻塞：${c.blockerReason || "待上传双签文件"}｜<a href="#/scp/mapping-review">查看映射</a></p>`).join("") || "<p>无</p>"}</article>
     </section>`
   );
 }
